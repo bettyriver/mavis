@@ -25,7 +25,7 @@ class Construct_cube:
     
     def __init__(
             self, blobs_df, global_param_df, x_range, y_range, w_range,
-            nx, ny, nw):
+            nx, ny, nw,redshift):
         '''
         Parameters
         ----------
@@ -47,6 +47,8 @@ class Construct_cube:
             The number of pixel in y direction.
         ny : int
             The number of pixel in w direction.
+        redshift: float
+            The redshift for this galaxy
         lsf_fwhm:
             The fwhm of line-spread-function.
             
@@ -87,27 +89,28 @@ class Construct_cube:
         self.w_range = w_range
         
         # Define flux map properties
-        x_min, x_max = x_range  # X range
-        y_min, y_max = y_range  # Y range
-        w_min, w_max = w_range  # W range
+        self.x_min, self.x_max = x_range  # X range
+        self.y_min, self.y_max = y_range  # Y range
+        self.w_min, self.w_max = w_range  # W range
         self.nx = nx
         self.ny = ny
         self.nw = nw
         
         # Generate pixel grid
-        self.x = np.linspace(x_min, x_max, nx)
-        self.y = np.linspace(y_min, y_max, ny)
-        self.w = np.linspace(w_min, w_max, nw)
+        self.x = np.linspace(self.x_min, self.x_max, nx)
+        self.y = np.linspace(self.y_min, self.y_max, ny)
+        self.w = np.linspace(self.w_min, self.w_max, nw)
         self.X, self.Y = np.meshgrid(self.x, self.y)
         
-        self.dx = (x_max - x_min)/nx
-        self.dy = (y_max - y_min)/ny
-        self.dw = (w_max - w_min)/nw
+        self.dx = (self.x_max - self.x_min)/nx
+        self.dy = (self.y_max - self.y_min)/ny
+        self.dw = (self.w_max - self.w_min)/nw
         
         # speed of light in km/s
         self.C = 2.99792458e5
         
         self.pixel_width = np.sqrt(self.nx * self.ny)
+        self.redshift = redshift
 
     def make_flux_map(self):
         '''
@@ -175,7 +178,7 @@ class Construct_cube:
             Y_b = yd_rot - blob_y
             
             # Compute Gaussian flux distribution
-            blob_flux = (blob_amplitude / (2 * np.pi * blob_w**2)) * \
+            blob_flux = (blob_amplitude / (2 * np.pi * blob_w**2 * cos_inc)) * \
                         np.exp(-(X_b**2 + Y_b**2) / (2 * blob_w**2))
             
             # Add contribution to flux map
@@ -184,13 +187,34 @@ class Construct_cube:
         # make flux map show the integrate flux of that spaxel
         # note this is a simlified calculation, the accurate one need to use
         # accumulative function
-        flux_map = flux_map * self.dx * self.dy
+        
+        ## no no no!!! I think i shouldn't multiply by the size of spaxel here..
+        # but if not mutiply, the value is wrong... need to think again...
+        
+        # I delete it again, as blobb3d doesn't do this...
+        # but the flux value that large? i don't understand...
+        # flux_map = flux_map * self.dx * self.dy
         
         return flux_map
     
         
         
     def plot_flux_map(self,vmin=-2,vmax=1):
+        '''
+        plot the flux map
+
+        Parameters
+        ----------
+        vmin : float, optional
+            min for the flux map. The default is -2.
+        vmax : float, optional
+            max for the flux map. The default is 1.
+
+        Returns
+        -------
+        None.
+
+        '''
         
         
         flux_map = self.make_flux_map()
@@ -260,6 +284,14 @@ class Construct_cube:
         return velocity_map
     
     def plot_vel_map(self):
+        '''
+        plot the velocity map
+
+        Returns
+        -------
+        None.
+
+        '''
         vel_map = self.make_vel_map()
         
         # Define flux map properties
@@ -277,6 +309,15 @@ class Construct_cube:
         plt.show()
 
     def make_rel_lambda_map(self):
+        '''
+        calculate the factor for the lambda shift
+
+        Returns
+        -------
+        rel_lambda : 2-d np.array
+            the factor for the lambda shift.
+
+        '''
         velocity_map = self.make_vel_map()
         
         # calculate the relative wavelength
@@ -296,7 +337,8 @@ class Construct_cube:
 
         Returns
         -------
-        vdisp_map.
+        vdisp_map : 2-d np.array
+            velocity dispersion map
 
         '''
         if vdisp is None:
@@ -309,10 +351,32 @@ class Construct_cube:
         return vdisp_map
         
     
-    def make_cube(self):
+    def make_cube(self,hsimcube=False):
+        '''
+        make the 3d datacube, the default data cube have the same units as
+        the MAGPI datacube, i.e. the flux unit is erg/s/cm^2/AA.
+
+        Parameters
+        ----------
+        hsimcube : boolen, optional
+            If True, the flux is divided by the spaxel scale in arcsec, i.e.
+            the unit of flux becomes erg/s/cm^2/AA/arcsec^2.
+            The default is False.
+
+        Returns
+        -------
+        cube : 3-d array
+            DESCRIPTION.
+
+        '''
         
         
         flux_map = self.make_flux_map()
+        # for HSIM cube, The flux density units for input datacubes require 
+        # the usual flux (e.g., erg/s/cm^2/AA) to be divided by the spaxel 
+        # scale in arcsec. This then gives e.g. erg/s/cm^2/AA/arcsec^2.
+        if hsimcube:
+            flux_map = flux_map / (0.2**2) 
         rel_lambda_map = self.make_rel_lambda_map()
         vdisp_map = self.make_vdisp_map()
         
@@ -326,15 +390,24 @@ class Construct_cube:
         cube = np.zeros((self.nw,self.ny,self.nx))
         # the below shape is wrong!! although I don't fully understand why 
         # the shape is the above...
-        #cube = np.zeros((self.nx,self.ny,self.nw))
+        # cube = np.zeros((self.nx,self.ny,self.nw))
         
         for i in range(self.ny):
             for j in range(self.nx):
                 amp = flux_map[i,j]
                 wave_cen = ha_wave*rel_lambda_map[i,j]
                 sigma = ha_wave * vdisp_c_map[i,j]
-                gaussian = amp * np.exp(-(self.w - wave_cen)**2/
-                                        (2 * sigma**2))
+                
+                #gaussian = np.zeros(self.nw)
+                
+                
+                
+                gaussian = amp / (np.sqrt(2*np.pi*sigma**2)) * \
+                    np.exp(-(self.w - wave_cen)**2 / (2 * sigma**2))
+                
+                
+                
+                
                 
                 cube[:,i,j] = gaussian
                 
@@ -344,9 +417,9 @@ class Construct_cube:
         
         
         
-    def make_fits(self):
+    def make_fits(self,savepath,hsimcube=False):
         
-        data = self.make_cube()
+        data = self.make_cube(hsimcube=hsimcube)
         
         
         # Create a primary HDU
@@ -370,7 +443,19 @@ class Construct_cube:
         
         # spectral info
         hdu.header['NAXIS3'] = self.nw
-        hdu.header['CTYPE3'] = 'WAVE'
+        hdu.header['CTYPE3'] = 'wavelength'
+        
+        # recover the redshifted wavelength
+        hdu.header['CDELT3'] = self.dw * (1 + self.redshift)
+        
+        hdu.header['SPECRES'] = self.nw  # don't know what it is.. need to modify
+        
+        hdu.header['CRPIX3'] = 1
+        hdu.header['CRVAL3'] = (self.w_min + 1/2 * self.dw) * (1 + self.redshift)
+        hdu.header['CUNIT3'] = 'Angstrom'
+        
+        # Flux unit
+        hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom/arcsec**2'
         
         
         
@@ -379,5 +464,5 @@ class Construct_cube:
         hdul = fits.HDUList([hdu])
         
         # Write to a FITS file
-        hdul.writeto('output.fits', overwrite=True)
+        hdul.writeto(savepath, overwrite=True)
         
