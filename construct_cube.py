@@ -171,29 +171,27 @@ class Construct_cube:
             
             blob_x, blob_y = row['X'], row['Y']
             blob_w = row['W']
-            blob_amplitude = row['FLUX0']
+            blob_flux = row['FLUX0']
             
             # Compute distances from blob center
             X_b = xd_rot - blob_x
             Y_b = yd_rot - blob_y
             
+            # multiply by the size of each pixel to get flux in that pixel
+            amp = self.dx * self.dy * blob_flux / (2 * np.pi * blob_w**2 * cos_inc)
+            
             # Compute Gaussian flux distribution
-            blob_flux = (blob_amplitude / (2 * np.pi * blob_w**2 * cos_inc)) * \
+            blob_flux_distribution = amp * \
                         np.exp(-(X_b**2 + Y_b**2) / (2 * blob_w**2))
             
             # Add contribution to flux map
-            flux_map += blob_flux
+            flux_map += blob_flux_distribution
         
         # make flux map show the integrate flux of that spaxel
         # note this is a simlified calculation, the accurate one need to use
         # accumulative function
         
-        ## no no no!!! I think i shouldn't multiply by the size of spaxel here..
-        # but if not mutiply, the value is wrong... need to think again...
         
-        # I delete it again, as blobb3d doesn't do this...
-        # but the flux value that large? i don't understand...
-        # flux_map = flux_map * self.dx * self.dy
         
         return flux_map
     
@@ -455,9 +453,10 @@ class Construct_cube:
         hdu.header['CUNIT3'] = 'Angstrom'
         
         # Flux unit
-        hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom/arcsec**2'
-        
-        
+        if hsimcube:
+            hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom/arcsec**2'
+        else:
+            hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom'
         
         
         # Create an HDU list
