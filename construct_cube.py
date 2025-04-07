@@ -25,7 +25,7 @@ class Construct_cube:
     
     def __init__(
             self, blobs_df, global_param_df, x_range, y_range, w_range,
-            nx, ny, nw,redshift):
+            nx, ny,redshift, lsf_fwhm=0.8):
         '''
         Parameters
         ----------
@@ -45,8 +45,12 @@ class Construct_cube:
             The number of pixel in x direction.
         ny : int
             The number of pixel in y direction.
-        ny : int
-            The number of pixel in w direction.
+        lsf_fwhm : float
+            the fwhm of lsf in Angstrom. 
+            default is 0.8, equvalent to R=10000
+            (i.e. MAVIS ideal spectral resolution)
+            It will determine the wavelength pixel
+            size. dw = 1/2 * lsf_fwhm, wavelength pixel size
         redshift: float
             The redshift for this galaxy
         lsf_fwhm:
@@ -94,17 +98,25 @@ class Construct_cube:
         self.w_min, self.w_max = w_range  # W range
         self.nx = nx
         self.ny = ny
-        self.nw = nw
+        #self.nw = nw
+        
+        
+        lsf_fwhm_deredshift = lsf_fwhm/(1 + redshift)
+        self.lsf_fwhm_deredshift = lsf_fwhm_deredshift
+        self.lsf_fwhm = lsf_fwhm
+        temp_dw = 0.5 * lsf_fwhm_deredshift
+        self.nw = int((self.w_max - self.w_min)/temp_dw + 1)
+        
         
         # Generate pixel grid
         self.x = np.linspace(self.x_min, self.x_max, nx)
         self.y = np.linspace(self.y_min, self.y_max, ny)
-        self.w = np.linspace(self.w_min, self.w_max, nw)
+        self.w = np.linspace(self.w_min, self.w_max, self.nw)
         self.X, self.Y = np.meshgrid(self.x, self.y)
         
         self.dx = (self.x_max - self.x_min)/nx
         self.dy = (self.y_max - self.y_min)/ny
-        self.dw = (self.w_max - self.w_min)/nw
+        self.dw = (self.w_max - self.w_min)/self.nw
         
         # speed of light in km/s
         self.C = 2.99792458e5
@@ -374,7 +386,7 @@ class Construct_cube:
         # the usual flux (e.g., erg/s/cm^2/AA) to be divided by the spaxel 
         # scale in arcsec. This then gives e.g. erg/s/cm^2/AA/arcsec^2.
         if hsimcube:
-            flux_map = flux_map / (0.2**2) 
+            flux_map = flux_map / (self.dx * self.dy) 
         rel_lambda_map = self.make_rel_lambda_map()
         vdisp_map = self.make_vdisp_map()
         
@@ -397,11 +409,16 @@ class Construct_cube:
                 sigma = ha_wave * vdisp_c_map[i,j]
                 
                 #gaussian = np.zeros(self.nw)
+                # as all calculation here are based on deredshift spectrum
+                # so use deredshift fwhm
+                sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
                 
                 
+                sigma_sq = sigma**2 + sigma_lsf**2
                 
-                gaussian = amp / (np.sqrt(2*np.pi*sigma**2)) * \
-                    np.exp(-(self.w - wave_cen)**2 / (2 * sigma**2))
+                
+                gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
                 
                 
                 
@@ -446,7 +463,7 @@ class Construct_cube:
         # recover the redshifted wavelength
         hdu.header['CDELT3'] = self.dw * (1 + self.redshift)
         
-        hdu.header['SPECRES'] = self.nw  # don't know what it is.. need to modify
+        hdu.header['SPECRES'] = self.lsf_fwhm  #lsf fwhm in Angstrom
         
         hdu.header['CRPIX3'] = 1
         hdu.header['CRVAL3'] = (self.w_min + 1/2 * self.dw) * (1 + self.redshift)
