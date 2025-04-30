@@ -156,17 +156,7 @@ class Construct_cube:
         flux_map = np.zeros((self.ny, self.nx))
         
         
-        # get rotated/inc disc coordinate, the 'd' means disc
-        ## shift
-        xd_shft = self.X - self.XC
-        yd_shft = self.Y - self.YC
         
-        ## rotate by pa arount z (counter-clockwise, East pa=0)
-        xd_rot = xd_shft*cos_pa + yd_shft*sin_pa
-        yd_rot = -xd_shft*sin_pa + yd_shft*cos_pa
-        
-        ## rotate by inclination
-        yd_rot *= invcos_inc
         
         
         # for each blob, generate the flux map
@@ -177,27 +167,57 @@ class Construct_cube:
         
         for _, row in self.blobs_df.iterrows():
             
-            
-            
-            
-            
             blob_x, blob_y = row['X'], row['Y']
             blob_w = row['W']
             blob_flux = row['FLUX0']
             
-            # Compute distances from blob center
-            X_b = xd_rot - blob_x
-            Y_b = yd_rot - blob_y
+            if blob_w * cos_inc < 0.5 * np.sqrt(self.dx * self.dy):
+                si = 2
+            elif blob_w * cos_inc < np.sqrt(self.dx * self.dy):
+                si = 1
+            else:
+                si = 0
+            
+            dxfs = self.dx / (2.0*si + 1)
+            dyfs = self.dy / (2.0*si + 1)
             
             # multiply by the size of each pixel to get flux in that pixel
-            amp = self.dx * self.dy * blob_flux / (2 * np.pi * blob_w**2 * cos_inc)
+            #amp = self.dx * self.dy * blob_flux / (2 * np.pi * blob_w**2 * cos_inc)
+            amp = dxfs * dyfs * blob_flux / (2 * np.pi * blob_w**2 * cos_inc)
             
-            # Compute Gaussian flux distribution
-            blob_flux_distribution = amp * \
-                        np.exp(-(X_b**2 + Y_b**2) / (2 * blob_w**2))
+            for xi in range(-si, si+1):
+                for yi in range(-si, si+1):
             
-            # Add contribution to flux map
-            flux_map += blob_flux_distribution
+                    # get rotated/inc disc coordinate, the 'd' means disc
+                    ## shift
+                    xd_shft = self.X - self.XC
+                    yd_shft = self.Y - self.YC
+                    
+                    xd_shft = xd_shft + xi*dxfs
+                    yd_shft = yd_shft + yi*dyfs
+                    
+                    ## rotate by pa arount z (counter-clockwise, East pa=0)
+                    xd_rot = xd_shft*cos_pa + yd_shft*sin_pa
+                    yd_rot = -xd_shft*sin_pa + yd_shft*cos_pa
+                    
+                    ## rotate by inclination
+                    yd_rot *= invcos_inc
+                    
+                    
+                    
+                    
+                    # Compute distances from blob center
+                    X_b = xd_rot - blob_x
+                    Y_b = yd_rot - blob_y
+                    
+                    
+                    
+                    # Compute Gaussian flux distribution
+                    blob_flux_distribution = amp * \
+                                np.exp(-(X_b**2 + Y_b**2) / (2 * blob_w**2))
+                    
+                    # Add contribution to flux map
+                    flux_map += blob_flux_distribution
         
         # make flux map show the integrate flux of that spaxel
         # note this is a simlified calculation, the accurate one need to use
@@ -361,7 +381,7 @@ class Construct_cube:
         return vdisp_map
         
     
-    def make_cube(self,hsimcube=False):
+    def make_cube(self,hsimcube=True):
         '''
         make the 3d datacube, the default data cube have the same units as
         the MAGPI datacube, i.e. the flux unit is erg/s/cm^2/AA.
@@ -432,7 +452,7 @@ class Construct_cube:
         
         
         
-    def make_fits(self,savepath,hsimcube=False):
+    def make_fits(self,savepath,hsimcube=True):
         
         data = self.make_cube(hsimcube=hsimcube)
         
@@ -448,13 +468,13 @@ class Construct_cube:
         hdu.header['NAXIS2'] = self.ny
         
         hdu.header['CTYPE1'] = 'RA---TAN'
-        hdu.header['CTYPE2'] = 'DEC---TAN'
+        hdu.header['CTYPE2'] = 'DEC--TAN'
         
         hdu.header['CDELT1'] = self.dx
         hdu.header['CDELT2'] = self.dy
         
-        hdu.header['CUNIT1'] = 'deg'
-        hdu.header['CUNIT2'] = 'deg'
+        hdu.header['CUNIT1'] = 'arcsec'
+        hdu.header['CUNIT2'] = 'arcsec'
         
         # spectral info
         hdu.header['NAXIS3'] = self.nw
