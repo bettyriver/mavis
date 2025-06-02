@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.io import fits
+import astropy.units as u
 
 class cmap:
     flux = 'inferno'
@@ -107,16 +108,20 @@ class Construct_cube:
         temp_dw = 0.5 * lsf_fwhm_deredshift
         self.nw = int((self.w_max - self.w_min)/temp_dw + 1)
         
+        # the range is the outmost range
+        self.dx = (self.x_max - self.x_min)/ (nx)
+        self.dy = (self.y_max - self.y_min)/ (ny)
+        self.dw = (self.w_max - self.w_min)/ (self.nw)
         
+        # coordinate of pixel is from the center of pixel
         # Generate pixel grid
-        self.x = np.linspace(self.x_min, self.x_max, nx)
-        self.y = np.linspace(self.y_min, self.y_max, ny)
-        self.w = np.linspace(self.w_min, self.w_max, self.nw)
+        self.x = np.linspace(self.x_min+0.5*self.dx, self.x_max-0.5*self.dx, nx)
+        self.y = np.linspace(self.y_min+0.5*self.dy, self.y_max-0.5*self.dy, ny)
+        self.w = np.linspace(self.w_min+0.5*self.dw, self.w_max-0.5*self.dw, self.nw)
         self.X, self.Y = np.meshgrid(self.x, self.y)
         
-        self.dx = (self.x_max - self.x_min)/nx
-        self.dy = (self.y_max - self.y_min)/ny
-        self.dw = (self.w_max - self.w_min)/self.nw
+        
+        
         
         # speed of light in km/s
         self.C = 2.99792458e5
@@ -355,7 +360,7 @@ class Construct_cube:
         
         return rel_lambda
     
-    def make_vdisp_map(self,vdisp=None):
+    def make_vdisp_map(self,vdisp=None,SFR_sigma=False):
         '''
         make a constant velocity dispersion map
 
@@ -364,6 +369,8 @@ class Construct_cube:
         vdisp : float
             gas velocity dispersion in unit of km/s. if vidsp is None,
             take the vdisp from blobb3d parameter
+        SFR_sigma: boolen
+            if True, calculate vdisp based on SigmaSFR-sigma relation in Mai+24.
 
         Returns
         -------
@@ -373,15 +380,64 @@ class Construct_cube:
         '''
         if vdisp is None:
             vdisp = self.vdisp
+        
+        if SFR_sigma:
+            vdisp_map = self.vdisp_from_SigmaSFR()
+            return vdisp_map
             
         
         
         vdisp_map = np.ones((self.ny, self.nx)) * vdisp
         
         return vdisp_map
+    
+    def vdisp_from_SigmaSFR(self):
+        
+        flux_map = self.make_flux_map()
+        from astropy.cosmology import LambdaCDM
+        lcdm = LambdaCDM(70,0.3,0.7)
+        luminosity_distance_Mpc = lcdm.luminosity_distance(self.redshift)
+        luminosity_diatance_cm = luminosity_distance_Mpc.to(u.cm)
+        # 4*pi*lumi_dis**2 * flux
+        # note the flux should add 1e-20 to get the value in erg/s/cm**2
+        luminosity_map = 4*np.pi*(luminosity_diatance_cm.value)**2*flux_map*1e-20
+        SFR_map = luminosity_map/(1.26*1.53*1e41) # from Mun+24
+        
+        pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=0.2, z=self.redshift)
+        
+        SigmaSFR_map = SFR_map/(pixel_wid_kpc)**2
+        
+        # calculate vdisp from SigmaSFR_map
+        #vdisp_map = np.zeros_like(SigmaSFR_map)
+        
+        # from Mai+24
+        # log vdisp = 0.26836382*logSigmaSFR + 2.03763428
+        
+        # assum the minimum logSigmaSFR is -3.5, any smaller value give a 
+        # constant vdisp
+        log10_vdisp_map = 0.26836382*np.log10(SigmaSFR_map) + 2.03763428
+        
+        vdisp_map = np.power(10, log10_vdisp_map)
+        
+        vdisp_map[SigmaSFR_map<np.power(10,-3.5)] = np.power(10, 0.26836382*-3.5 + 2.03763428)
+        
+        
+        
+        
+        return vdisp_map
         
     
-    def make_cube(self,hsimcube=True):
+    def arcsec_to_kpc(self,rad_in_arcsec,z):
+        from astropy.cosmology import LambdaCDM
+        lcdm = LambdaCDM(70,0.3,0.7)
+        distance = lcdm.angular_diameter_distance(z).value # angular diameter distance, Mpc/radian
+        rad_in_kpc = rad_in_arcsec * distance * np.pi/(180*3600)*1000
+        return rad_in_kpc
+        
+        
+        
+    
+    def make_cube(self,hsimcube=True,SFR_sigma=False):
         '''
         make the 3d datacube, the default data cube have the same units as
         the MAGPI datacube, i.e. the flux unit is erg/s/cm^2/AA.
@@ -408,7 +464,7 @@ class Construct_cube:
         if hsimcube:
             flux_map = flux_map / (self.dx * self.dy) 
         rel_lambda_map = self.make_rel_lambda_map()
-        vdisp_map = self.make_vdisp_map()
+        vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma)
         
         vdisp_c_map = vdisp_map/self.C
         
@@ -452,9 +508,9 @@ class Construct_cube:
         
         
         
-    def make_fits(self,savepath,hsimcube=True):
+    def make_fits(self,savepath,hsimcube=True,SFR_sigma=False):
         
-        data = self.make_cube(hsimcube=hsimcube)
+        data = self.make_cube(hsimcube=hsimcube,SFR_sigma=SFR_sigma)
         
         
         # Create a primary HDU
@@ -486,7 +542,9 @@ class Construct_cube:
         hdu.header['SPECRES'] = self.lsf_fwhm  #lsf fwhm in Angstrom
         
         hdu.header['CRPIX3'] = 1
-        hdu.header['CRVAL3'] = (self.w_min + 1/2 * self.dw) * (1 + self.redshift)
+        # maybe I shouldn't add this 1/2*dw here
+        #hdu.header['CRVAL3'] = (self.w_min + 1/2 * self.dw) * (1 + self.redshift)
+        hdu.header['CRVAL3'] = (self.w_min ) * (1 + self.redshift)
         hdu.header['CUNIT3'] = 'Angstrom'
         
         # Flux unit

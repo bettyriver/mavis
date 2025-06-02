@@ -14,7 +14,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
+def fit_cube(data_cube, snr_cube, z, lsf_fwhm_angstrom,savepath=None, 
+             snr_lim=None):
     '''
     
 
@@ -27,6 +28,8 @@ def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
         data cube per pixel
     z : float
         the redshift of this galaxy.
+    lsf_fwhm_angstrom:
+        the FWHM of LSF in angstrom.
     snr_lim : int or float, optional
         DESCRIPTION. The default is None.
 
@@ -38,6 +41,10 @@ def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
     '''
     
     flux_data = data_cube[0].data 
+    # the unit should be per angstrom to ensure the consistency of the unit
+    flux_data = flux_data * 1e-4
+    # multiply by 50 milliarcsec * 50 milliarcsec = 0.05 * 0.05 arcsec * arcsec
+    flux_data = flux_data * 0.050 * 0.050
     nw, ny, nx = flux_data.shape
     snr_data = snr_cube[0].data
     
@@ -49,6 +56,9 @@ def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
     wavelength_crpix = HD1['CRPIX3']
     wavelength_crval = HD1['CRVAL3']
     wavelength_del_mic = HD1['CDELT3']
+    
+    lsf_fwhm_angstrom_dered = lsf_fwhm_angstrom/(1 + z)
+    lsf_sigma_angstrom_dered = lsf_fwhm_angstrom_dered/(2 * np.sqrt(2 * np.log(2)))
     
     # wavelength array in micrometer
     wavelengths_mic = wavelength_crval + \
@@ -85,10 +95,19 @@ def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
                                    maxfev=10000)
             
             amp, mu, sigma = popt
-            flux_i = amp / (np.sqrt(2*np.pi*sigma**2))
+            flux_i = amp * (np.sqrt(2*np.pi*sigma**2))
             rel_lambda = mu / ha_wave
             velocity_i = (rel_lambda - 1) * C #km/s
-            vdisp_i = sigma / ha_wave * C # km/s, this didn't remove lsf
+            
+            
+            if sigma<lsf_sigma_angstrom_dered:
+                #sigma_intrinsic = -999
+                vdisp_i = -999
+            else:
+                sigma_intrinsic = np.sqrt(sigma **2 - lsf_sigma_angstrom_dered **2)
+            
+            
+                vdisp_i = sigma_intrinsic / ha_wave * C # km/s, this didn't remove lsf
             
             flux_map[yy,xx] = flux_i
             sigma_map[yy,xx] = vdisp_i
@@ -119,3 +138,43 @@ def fit_cube(data_cube, snr_cube, z, savepath=None, snr_lim=None):
 
 def gaussian(x, amp, mu, sigma):
     return amp * np.exp(-(x - mu)**2 / (2 * sigma**2))
+
+def centre_pix(x_range,y_range,nx, ny, centre_coor):
+    '''
+    
+
+    Parameters
+    ----------
+    x_range : tuple
+        (x_min,x_max).
+    y_range : tuple
+        (y_min,y_max).
+    nx: int
+        number of x pixels
+    ny: int
+        number of y pixels
+    centre_coor : tuple
+        (x_cen,y_cen).
+
+    Returns
+    -------
+    x_pix, y_pix
+    note: pix indext start from 0
+
+    '''
+    
+    x_min, x_max = x_range  # X range
+    y_min, y_max = y_range  # Y range
+    
+    
+    delta_x = (x_max - x_min)/nx
+    delta_y = (y_max - y_min)/ny
+    
+    x_c, y_c = centre_coor
+    
+    x_pix = (x_c - (x_min + 0.5*delta_x))/delta_x
+    y_pix = (y_c - (y_min + 0.5*delta_y))/delta_y
+    
+    return x_pix, y_pix
+    
+    
