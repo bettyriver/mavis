@@ -392,7 +392,7 @@ class Construct_cube:
         
         return vdisp_map
     
-    def vdisp_from_SigmaSFR(self):
+    def vdisp_from_SigmaSFR(self,paper='Wisnioski+12'):
         
         flux_map = self.make_flux_map()
         from astropy.cosmology import LambdaCDM
@@ -420,7 +420,13 @@ class Construct_cube:
         
         # assum the minimum logSigmaSFR is -3.5, any smaller value give a 
         # constant vdisp
-        log10_vdisp_map = 0.26836382*np.log10(SigmaSFR_map) + 2.03763428
+        if paper == 'Wisnioski+12':
+            log10_vdisp_map = 0.61*np.log10(SigmaSFR_map) + 2.01
+            
+            
+        elif paper == 'Mai+24':
+        
+            log10_vdisp_map = 0.26836382*np.log10(SigmaSFR_map) + 2.03763428
         
         vdisp_map = np.power(10, log10_vdisp_map)
         
