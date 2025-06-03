@@ -15,6 +15,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.io import fits
 import astropy.units as u
+from scipy.stats import norm
 
 class cmap:
     flux = 'inferno'
@@ -403,7 +404,8 @@ class Construct_cube:
         luminosity_map = 4*np.pi*(luminosity_diatance_cm.value)**2*flux_map*1e-20
         SFR_map = luminosity_map/(1.26*1.53*1e41) # from Mun+24
         
-        pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=0.2, z=self.redshift)
+        pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=np.sqrt(self.dx * self.dy),
+                                           z=self.redshift)
         
         SigmaSFR_map = SFR_map/(pixel_wid_kpc)**2
         
@@ -412,6 +414,9 @@ class Construct_cube:
         
         # from Mai+24
         # log vdisp = 0.26836382*logSigmaSFR + 2.03763428
+        
+        # from Wisnioski+12
+        # log vdisp = 0.61 * logSigmaSFR + 2.01
         
         # assum the minimum logSigmaSFR is -3.5, any smaller value give a 
         # constant vdisp
@@ -493,12 +498,15 @@ class Construct_cube:
                 sigma_sq = sigma**2 + sigma_lsf**2
                 
                 
-                gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
-                    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
                 
+                w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                w_cdf = w_cdf - self.dw/2
                 
+                cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
                 
-                
+                gaussian = np.diff(cdf_scipy)/self.dw * amp
                 
                 cube[:,i,j] = gaussian
                 
