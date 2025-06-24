@@ -361,7 +361,8 @@ class Construct_cube:
         
         return rel_lambda
     
-    def make_vdisp_map(self,vdisp=None,SFR_sigma=False):
+    def make_vdisp_map(self,vdisp=None,SFR_sigma=False,
+                       sigmaSigmaSFRpaper='Wisnioski+12'):
         '''
         make a constant velocity dispersion map
 
@@ -383,7 +384,7 @@ class Construct_cube:
             vdisp = self.vdisp
         
         if SFR_sigma:
-            vdisp_map = self.vdisp_from_SigmaSFR()
+            vdisp_map = self.vdisp_from_SigmaSFR(paper=sigmaSigmaSFRpaper)
             return vdisp_map
             
         
@@ -423,14 +424,20 @@ class Construct_cube:
         if paper == 'Wisnioski+12':
             log10_vdisp_map = 0.61*np.log10(SigmaSFR_map) + 2.01
             
+            vdisp_map = np.power(10, log10_vdisp_map)
+        
+            vdisp_map[SigmaSFR_map<np.power(10,-1.5)] = np.power(10, 0.61*-1.5 + 2.01)
+        
+        
+            
             
         elif paper == 'Mai+24':
         
             log10_vdisp_map = 0.26836382*np.log10(SigmaSFR_map) + 2.03763428
         
-        vdisp_map = np.power(10, log10_vdisp_map)
+            vdisp_map = np.power(10, log10_vdisp_map)
         
-        vdisp_map[SigmaSFR_map<np.power(10,-3.5)] = np.power(10, 0.26836382*-3.5 + 2.03763428)
+            vdisp_map[SigmaSFR_map<np.power(10,-3.5)] = np.power(10, 0.26836382*-3.5 + 2.03763428)
         
         
         
@@ -448,7 +455,8 @@ class Construct_cube:
         
         
     
-    def make_cube(self,hsimcube=True,SFR_sigma=False):
+    def make_cube(self,hsimcube=True,SFR_sigma=False,
+                  sigmaSigmaSFRpaper='Wisnioski+12'):
         '''
         make the 3d datacube, the default data cube have the same units as
         the MAGPI datacube, i.e. the flux unit is erg/s/cm^2/AA.
@@ -475,7 +483,8 @@ class Construct_cube:
         if hsimcube:
             flux_map = flux_map / (self.dx * self.dy) 
         rel_lambda_map = self.make_rel_lambda_map()
-        vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma)
+        vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma,
+                                        sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
         
         vdisp_c_map = vdisp_map/self.C
         
@@ -522,9 +531,11 @@ class Construct_cube:
         
         
         
-    def make_fits(self,savepath,hsimcube=True,SFR_sigma=False):
+    def make_fits(self,savepath,hsimcube=True,SFR_sigma=False,
+                  sigmaSigmaSFRpaper='Wisnioski+12'):
         
-        data = self.make_cube(hsimcube=hsimcube,SFR_sigma=SFR_sigma)
+        data = self.make_cube(hsimcube=hsimcube,SFR_sigma=SFR_sigma,
+                              sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
         
         
         # Create a primary HDU
