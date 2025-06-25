@@ -28,8 +28,8 @@ phimp = 1.4
 epsff = 0.015
 tsfmax = 2.0*u.Gyr
 Qmin = 1.0
-eta = 1.5
-phiQ = 2.0
+eta = 1.5 # a scaling factor for the turbulent dissipationrate
+phiQ = 2.0 # defined as one plus the ratio of the gas to stellar Q
 pmstar = 3000.*u.km/u.s
 
 # Four sets of parameters: dwarf-like, spiral-like, intermediate, hi-z
@@ -51,6 +51,10 @@ beta_ = beta[i]
 torb_ = torb[i]
 fgQ_ = fgQ[i]
 fgP_ = fgP[i]
+
+
+
+############ SF + transport model, eq 59 in M. Krumholz+2018 #########
 
 
 sigma_th = sigma_wnm*(1.0 - fsf_) + sigma_mol*fsf_
@@ -86,15 +90,56 @@ sigma = np.concatenate((np.array(sigma1.to(u.km/u.s)),
                             np.array(sigma2.to(u.km/u.s)))) * \
                             u.km/u.s
                             
-sigma_ion = np.sqrt(sigma ** 2 + sigma_Ha **2)
+sigma_ion_ft = np.sqrt(sigma ** 2 + sigma_Ha **2)
                             
-Sigma_SFR = np.concatenate((np.array(Sigma_SFR1.to(u.Msun/u.yr/u.kpc**2)),
+Sigma_SFR_ft = np.concatenate((np.array(Sigma_SFR1.to(u.Msun/u.yr/u.kpc**2)),
                             np.array(Sigma_SFR2.to(u.Msun/u.yr/u.kpc**2)))) * \
                             u.Msun/u.yr/u.kpc**2
                 
 
-plt.scatter(np.log10(Sigma_SFR.value),np.log10(sigma_ion.value))
+plt.scatter(np.log10(Sigma_SFR_ft.value),np.log10(sigma_ion_ft.value))
 plt.xlabel('log SigmaSFR [Msun/yr/kpc**2]')
 plt.ylabel('log sigma_ion_gas [km/s]]')
+plt.title('feedback + transport')
 plt.show()
 
+######### feedback only model, eq 61 in M. Krumholz+2018 #######
+
+phint = 1.0 # the fraction of the velocity dispersion that isnonthermal
+sigma = sigma_vec* 3 *u.km/u.s # from 3 to 300
+p_on_m = 3000 *u.km/u.s
+
+Sigma_SFR_f_k18 = 8 * (beta_ + 1) * np.pi * eta * np.sqrt(phimp*phint**3) * phiQ * \
+                    sigma**2 / (const.G*Qmin**2*p_on_m*fgP_*torb_**2)
+sigma_ion_f_k18 = np.sqrt(sigma ** 2 + sigma_Ha **2)
+
+plt.scatter(np.log10(Sigma_SFR_f_k18.to(u.Msun/u.yr/u.kpc**2).value),
+            np.log10(sigma_ion_f_k18.to(u.km/u.s).value))
+plt.xlabel('log SigmaSFR [Msun/yr/kpc**2]')
+plt.ylabel('log sigma_ion_gas [km/s]]')
+plt.title('feedback only Krumholz+18')
+plt.show()
+
+########## feedack only model, TIGRESS, Ostriker+2022, ref. Lenkic+2024 eq27 #
+
+# log sigma_mol = 0.1804 * log SigmaSFR + 1.56
+
+log_SigmaSFR_f_O22 = np.linspace(-3,1.5,1000)
+log_sigma_mol = 0.1804 * log_SigmaSFR_f_O22 + 1.56
+sigma_ion_f_O22 = np.sqrt(np.power(10,log_sigma_mol)**2 + 15**2)
+plt.scatter(log_SigmaSFR_f_O22,np.log10(sigma_ion_f_O22))
+plt.xlabel('log SigmaSFR [Msun/yr/kpc**2]')
+plt.ylabel('log sigma_ion_gas [km/s]]')
+plt.title('feedback only Ostriker+22')
+plt.show()
+
+############### compare three models ############
+plt.scatter(np.log10(Sigma_SFR_ft.value),np.log10(sigma_ion_ft.value),label='F+T')
+plt.scatter(np.log10(Sigma_SFR_f_k18.to(u.Msun/u.yr/u.kpc**2).value),
+            np.log10(sigma_ion_f_k18.to(u.km/u.s).value),label='F,K+18')
+plt.scatter(log_SigmaSFR_f_O22,np.log10(sigma_ion_f_O22),label='F,O+22')
+plt.xlabel('log SigmaSFR [Msun/yr/kpc**2]')
+plt.ylabel('log sigma_ion_gas [km/s]]')
+plt.legend()
+plt.title('compare')
+plt.show()
