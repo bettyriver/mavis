@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 import astropy.units as u
 from scipy.stats import norm
+from SigmaSFR_to_sigma_models import K18_F_and_T, K18_F_only, O22_F_only
 
 class cmap:
     flux = 'inferno'
@@ -393,7 +394,45 @@ class Construct_cube:
         
         return vdisp_map
     
+    def make_SigmaSFR_map(self):
+        flux_map = self.make_flux_map()
+        from astropy.cosmology import LambdaCDM
+        lcdm = LambdaCDM(70,0.3,0.7)
+        luminosity_distance_Mpc = lcdm.luminosity_distance(self.redshift)
+        luminosity_diatance_cm = luminosity_distance_Mpc.to(u.cm)
+        # 4*pi*lumi_dis**2 * flux
+        # note the flux should add 1e-20 to get the value in erg/s/cm**2
+        luminosity_map = 4*np.pi*(luminosity_diatance_cm.value)**2*flux_map*1e-20
+        SFR_map = luminosity_map/(1.26*1.53*1e41) # from Mun+24
+        
+        pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=np.sqrt(self.dx * self.dy),
+                                           z=self.redshift)
+        
+        SigmaSFR_map = SFR_map/(pixel_wid_kpc)**2
+        return SigmaSFR_map
+    
     def vdisp_from_SigmaSFR(self,paper='Wisnioski+12'):
+        '''
+        calculate ionised gas velocity dispersion from SigmaSFR.
+
+        Parameters
+        ----------
+        paper : str, optional
+            paper that relation is from. The default is 'Wisnioski+12'.
+            'Wisnioski+12': relation from observation of individual HII regions
+                            from E. Wisnioski+2012
+            'Mai+24': relation from observation of galaxy global parameters
+                        from Y. Mai+2024
+            'Krumholz+18_FT': feedback+tranport model from Krumholz+2018
+            'Krumholz+18_Fonly': feedback only model from Krumholz+2018
+            'Ostriker+22_Fonly': feedback only model from Ostriker+2022
+
+        Returns
+        -------
+        vdisp_map : TYPE
+            DESCRIPTION.
+
+        '''
         
         flux_map = self.make_flux_map()
         from astropy.cosmology import LambdaCDM
@@ -409,6 +448,8 @@ class Construct_cube:
                                            z=self.redshift)
         
         SigmaSFR_map = SFR_map/(pixel_wid_kpc)**2
+        valid_options = ['Wisnioski+12','Mai+24','Krumholz+18_FT',
+                         'Krumholz+18_Fonly','Ostriker+22_Fonly']
         
         # calculate vdisp from SigmaSFR_map
         #vdisp_map = np.zeros_like(SigmaSFR_map)
@@ -439,8 +480,19 @@ class Construct_cube:
         
             vdisp_map[SigmaSFR_map<np.power(10,-3.5)] = np.power(10, 0.26836382*-3.5 + 2.03763428)
         
+        elif paper == 'Krumholz+18_FT':
+            vdisp_map = np.zeros_like(SigmaSFR_map)
+            map_shape = vdisp_map.shape
+            for i in range(map_shape[0]):
+                for j in range(map_shape[1]):
+                    vdisp_map[i,j] = K18_F_and_T(SigmaSFR_map[i,j])
         
-        
+        elif paper == 'Krumholz+18_Fonly':
+            vdisp_map = K18_F_only(SigmaSFR_map)
+        elif paper == 'Ostriker+22_Fonly':
+            vdisp_map = O22_F_only(SigmaSFR_map)
+        else:
+            raise ValueError(f"Invalid option: '{paper}'. Valid options are: {', '.join(valid_options)}")
         
         return vdisp_map
         
