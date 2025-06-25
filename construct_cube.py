@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 import astropy.units as u
 from scipy.stats import norm
-from SigmaSFR_to_sigma_models import K18_F_and_T, K18_F_only, O22_F_only
+from SigmaSFR_to_sigma_models import K18_F_and_T, K18_F_only, O22_F_only, K18_F_and_T_quick
 
 class cmap:
     flux = 'inferno'
@@ -462,6 +462,15 @@ class Construct_cube:
         
         # assum the minimum logSigmaSFR is -3.5, any smaller value give a 
         # constant vdisp
+        
+        # for spaxel that have very low SigmaSFR, give a certain value to 
+        # avoid log10 (0)
+        
+        low_SigmaSFR = SigmaSFR_map < 1e-8
+        SigmaSFR_map[low_SigmaSFR] = 1e-8
+        
+        
+        
         if paper == 'Wisnioski+12':
             log10_vdisp_map = 0.61*np.log10(SigmaSFR_map) + 2.01
             
@@ -482,10 +491,18 @@ class Construct_cube:
         
         elif paper == 'Krumholz+18_FT':
             vdisp_map = np.zeros_like(SigmaSFR_map)
-            map_shape = vdisp_map.shape
-            for i in range(map_shape[0]):
-                for j in range(map_shape[1]):
-                    vdisp_map[i,j] = K18_F_and_T(SigmaSFR_map[i,j])
+            # don't use for loop ....
+            #map_shape = vdisp_map.shape
+            #for i in range(map_shape[0]):
+            #    for j in range(map_shape[1]):
+            #        vdisp_map[i,j] = K18_F_and_T(SigmaSFR_map[i,j])
+                    
+            SigmaSFR_break = K18_F_and_T_quick(get_break_point=True)
+            Fonly_sigma = K18_F_and_T_quick(get_Fonly_sigma=True)
+            query = SigmaSFR_map > SigmaSFR_break
+            vdisp_map[~query] = Fonly_sigma
+            vdisp_map[query] = K18_F_and_T_quick(SigmaSFR=SigmaSFR_map[query])
+                    
         
         elif paper == 'Krumholz+18_Fonly':
             vdisp_map = K18_F_only(SigmaSFR_map)
