@@ -28,7 +28,7 @@ class Construct_cube:
     
     def __init__(
             self, blobs_df, global_param_df, x_range, y_range, w_range,
-            nx, ny,redshift, lsf_fwhm=0.8):
+            nx, ny,redshift, lsf_fwhm=0.8,mask=None):
         '''
         Parameters
         ----------
@@ -58,6 +58,8 @@ class Construct_cube:
             The redshift for this galaxy
         lsf_fwhm:
             The fwhm of line-spread-function.
+        mask: 2-d array
+            mask from original datacube. 1 to mask, 0 to keep
             
         '''
         self.blobs_df = blobs_df
@@ -130,6 +132,9 @@ class Construct_cube:
         
         self.pixel_width = np.sqrt(self.nx * self.ny)
         self.redshift = redshift
+        
+        
+        self.mask = mask
 
     def make_flux_map(self):
         '''
@@ -154,10 +159,48 @@ class Construct_cube:
         flux_map: 2-d array
             Flux map.
         '''
+        
         sin_pa = np.sin(self.PA)
         cos_pa = np.cos(self.PA)
         cos_inc = np.cos(self.INC)
         invcos_inc = 1.0/cos_inc
+        
+        
+        # work with mask 
+        if self.mask is not None:
+            
+            mask_ny, mask_nx = self.mask.shape
+            
+            # the range is the outmost range
+            mask_dx = (self.x_max - self.x_min)/ (mask_nx)
+            mask_dy = (self.y_max - self.y_min)/ (mask_ny)
+            
+            # Generate pixel grid
+            mask_x = np.linspace(self.x_min+0.5*mask_dx, self.x_max-0.5*mask_dx, mask_nx)
+            mask_y = np.linspace(self.y_min+0.5*mask_dy, self.y_max-0.5*mask_dy, mask_ny)
+            
+            mask_X, mask_Y = np.meshgrid(mask_x, mask_y)
+            
+            
+            
+            # get rotated/inc disc coordinate, the 'd' means disc
+            ## shift
+            mask_xd_shft = mask_X - self.XC
+            mask_yd_shft = mask_Y - self.YC
+            
+            
+            ## rotate by pa arount z (counter-clockwise, East pa=0)
+            mask_xd_rot = mask_xd_shft*cos_pa + mask_yd_shft*sin_pa
+            mask_yd_rot = -mask_xd_shft*sin_pa + mask_yd_shft*cos_pa
+            
+            ## rotate by inclination
+            mask_yd_rot *= invcos_inc
+            
+            
+        
+        
+        
+        
         
         
         flux_map = np.zeros((self.ny, self.nx))
@@ -177,6 +220,18 @@ class Construct_cube:
             blob_x, blob_y = row['X'], row['Y']
             blob_w = row['W']
             blob_flux = row['FLUX0']
+            
+            
+            if self.mask is not None:
+                # Compute the distance to (blob_x, blob_y)
+                dist = np.sqrt((mask_xd_rot - blob_x)**2 + (mask_yd_rot - blob_y)**2)
+                
+                # Get the index of the minimum distance
+                i, j = np.unravel_index(np.argmin(dist), dist.shape)
+                
+                
+                if self.mask[i,j] == 1:
+                    continue
             
             if blob_w * cos_inc < 0.5 * np.sqrt(self.dx * self.dy):
                 si = 2
@@ -236,7 +291,7 @@ class Construct_cube:
     
         
         
-    def plot_flux_map(self,vmin=-2,vmax=1):
+    def plot_flux_map(self,vmin=-22,vmax=-19,plot_title=False,savepath=None):
         '''
         plot the flux map
 
@@ -262,12 +317,15 @@ class Construct_cube:
         
         # Plot the flux map
         plt.figure(figsize=(6, 5))
-        plt.imshow(np.log10(flux_map), extent=[x_min, x_max, y_min, y_max], origin='lower', 
+        plt.imshow(np.log10(flux_map*1e-20), extent=[x_min, x_max, y_min, y_max], origin='lower', 
                    cmap='inferno',vmin=vmin,vmax=vmax)
-        plt.colorbar(label='log10(Flux)')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.title('Flux Map from Blobs in DataFrame')
+        plt.colorbar(label=r'log$_{10}$(Flux) [erg/s/cm$^2$]',fraction=0.046, pad=0.04)
+        plt.xlabel(r'$\Delta$RA(")')
+        plt.ylabel(r'$\Delta$Dec(")')
+        if plot_title:
+            plt.title('Flux Map from Blobs in DataFrame')
+        if savepath is not None:
+            plt.savefig(savepath,dpi=300,bbox_inches='tight')
         plt.show()
         
         

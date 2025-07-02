@@ -13,9 +13,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+import astropy.units as u
 
 def fit_cube(data_cube, snr_cube, z, lsf_fwhm_angstrom,savepath=None, 
-             snr_lim=None):
+             snr_lim=None,dx_arcsec=0.05):
     '''
     
 
@@ -32,6 +33,8 @@ def fit_cube(data_cube, snr_cube, z, lsf_fwhm_angstrom,savepath=None,
         the FWHM of LSF in angstrom.
     snr_lim : int or float, optional
         DESCRIPTION. The default is None.
+    dx_arcsec: float.
+        the pixel size in arcsec, the default is 0.05 (MAVIS 50 mas)
 
     Returns
     -------
@@ -44,7 +47,7 @@ def fit_cube(data_cube, snr_cube, z, lsf_fwhm_angstrom,savepath=None,
     # the unit should be per angstrom to ensure the consistency of the unit
     flux_data = flux_data * 1e-4
     # multiply by 50 milliarcsec * 50 milliarcsec = 0.05 * 0.05 arcsec * arcsec
-    flux_data = flux_data * 0.050 * 0.050
+    flux_data = flux_data * dx_arcsec * dx_arcsec
     nw, ny, nx = flux_data.shape
     snr_data = snr_cube[0].data
     
@@ -176,5 +179,49 @@ def centre_pix(x_range,y_range,nx, ny, centre_coor):
     y_pix = (y_c - (y_min + 0.5*delta_y))/delta_y
     
     return x_pix, y_pix
+
+
+def arcsec_to_kpc(rad_in_arcsec,z):
+    from astropy.cosmology import LambdaCDM
+    lcdm = LambdaCDM(70,0.3,0.7)
+    distance = lcdm.angular_diameter_distance(z).value # angular diameter distance, Mpc/radian
+    rad_in_kpc = rad_in_arcsec * distance * np.pi/(180*3600)*1000
+    return rad_in_kpc
     
+def ha_flux_to_SigmaSFR(ha_flux_map,z,dx_arcsec,dy_arcsec):
+    '''
     
+
+    Parameters
+    ----------
+    ha_flux_map : 2d-array
+        ha flux in the unit of erg/s/cm**2.
+    z : float
+        redshift.
+    dx_arcsec : float
+        width of pixel in x direction in arcsec.
+    dy_arcsec : float
+        width of pixel in y direction in arcsec.
+
+    Returns
+    -------
+    SigmaSFR_map: 2d-array
+        Sigma SFR map in the unit of M_sun yr^-1 kpc^-2
+
+    '''
+    
+    from astropy.cosmology import LambdaCDM
+    lcdm = LambdaCDM(70,0.3,0.7)
+    luminosity_distance_Mpc = lcdm.luminosity_distance(z)
+    luminosity_diatance_cm = luminosity_distance_Mpc.to(u.cm)
+    # 4*pi*lumi_dis**2 * flux
+    # note the flux should add 1e-20 to get the value in erg/s/cm**2
+    luminosity_map = 4*np.pi*(luminosity_diatance_cm.value)**2*ha_flux_map
+    SFR_map = luminosity_map/(1.26*1.53*1e41) # from Mun+24
+    
+    pixel_wid_kpc = arcsec_to_kpc(rad_in_arcsec=np.sqrt(dx_arcsec * dy_arcsec),
+                                       z=z)
+    
+    SigmaSFR_map = SFR_map/(pixel_wid_kpc)**2
+    
+    return SigmaSFR_map
