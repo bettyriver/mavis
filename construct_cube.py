@@ -62,7 +62,7 @@ class Construct_cube:
             mask from original datacube. 1 to mask, 0 to keep
             
         '''
-        self.blobs_df = blobs_df
+        self.blobs_df = blobs_df.copy()
         
         self.blobs_df['X'] = blobs_df['RC'] * np.cos(blobs_df['THETAC'])
         self.blobs_df['Y'] = blobs_df['RC'] * np.sin(blobs_df['THETAC'])
@@ -289,7 +289,99 @@ class Construct_cube:
         
         return flux_map
     
+    def get_blob_keep(self):
+        '''
+        use mask to decide which blob to keep.
+        return a boolen list to give which blob to keep (True) 
+                
         
+        Parameters
+        ----------
+        
+    
+        Returns
+        -------
+        blob_keep: 1-d array boolen
+            the blob to keep is True
+        '''
+        
+        sin_pa = np.sin(self.PA)
+        cos_pa = np.cos(self.PA)
+        cos_inc = np.cos(self.INC)
+        invcos_inc = 1.0/cos_inc
+        
+        blob_keep = []
+        
+        # work with mask 
+        if self.mask is not None:
+            
+            mask_ny, mask_nx = self.mask.shape
+            
+            # the range is the outmost range
+            mask_dx = (self.x_max - self.x_min)/ (mask_nx)
+            mask_dy = (self.y_max - self.y_min)/ (mask_ny)
+            
+            # Generate pixel grid
+            mask_x = np.linspace(self.x_min+0.5*mask_dx, self.x_max-0.5*mask_dx, mask_nx)
+            mask_y = np.linspace(self.y_min+0.5*mask_dy, self.y_max-0.5*mask_dy, mask_ny)
+            
+            mask_X, mask_Y = np.meshgrid(mask_x, mask_y)
+            
+            
+            
+            # get rotated/inc disc coordinate, the 'd' means disc
+            ## shift
+            mask_xd_shft = mask_X - self.XC
+            mask_yd_shft = mask_Y - self.YC
+            
+            
+            ## rotate by pa arount z (counter-clockwise, East pa=0)
+            mask_xd_rot = mask_xd_shft*cos_pa + mask_yd_shft*sin_pa
+            mask_yd_rot = -mask_xd_shft*sin_pa + mask_yd_shft*cos_pa
+            
+            ## rotate by inclination
+            mask_yd_rot *= invcos_inc
+            
+            
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        # for each blob, generate the flux map
+        # flux distribution of each blob is describe by (eq. 6 in Varidel+2019)
+        # F = f/(2*pi*w**2)*exp(-(x**2+y**2)/(2*w**2))
+        # f is the amplitude, w is the width of the blob, x, y are the distance
+        # from the center of the blob
+        
+        for _, row in self.blobs_df.iterrows():
+            
+            blob_x, blob_y = row['X'], row['Y']
+            blob_w = row['W']
+            blob_flux = row['FLUX0']
+            
+            
+            if self.mask is not None:
+                # Compute the distance to (blob_x, blob_y)
+                dist = np.sqrt((mask_xd_rot - blob_x)**2 + (mask_yd_rot - blob_y)**2)
+                
+                # Get the index of the minimum distance
+                i, j = np.unravel_index(np.argmin(dist), dist.shape)
+                
+                
+                if self.mask[i,j] == 1:
+                    blob_keep.append(False)
+                else:
+                    blob_keep.append(True)
+            
+        return blob_keep
         
     def plot_flux_map(self,vmin=-22,vmax=-19,plot_title=False,savepath=None):
         '''
