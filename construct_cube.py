@@ -662,6 +662,8 @@ class Construct_cube:
             raise ValueError(f"Invalid option: '{paper}'. Valid options are: {', '.join(valid_options)}")
         
         return vdisp_map
+    
+    
         
     
     def arcsec_to_kpc(self,rad_in_arcsec,z):
@@ -675,7 +677,7 @@ class Construct_cube:
         
     
     def make_cube(self,hsimcube=True,SFR_sigma=False,
-                  sigmaSigmaSFRpaper='Wisnioski+12'):
+                  sigmaSigmaSFRpaper='Wisnioski+12',outflow=False):
         '''
         make the 3d datacube, the default data cube have the same units as
         the MAGPI datacube, i.e. the flux unit is erg/s/cm^2/AA.
@@ -694,67 +696,215 @@ class Construct_cube:
 
         '''
         
+        if not outflow:
         
-        flux_map = self.make_flux_map()
-        # for HSIM cube, The flux density units for input datacubes require 
-        # the usual flux (e.g., erg/s/cm^2/AA) to be divided by the spaxel 
-        # scale in arcsec. This then gives e.g. erg/s/cm^2/AA/arcsec^2.
-        if hsimcube:
-            flux_map = flux_map / (self.dx * self.dy) 
-        rel_lambda_map = self.make_rel_lambda_map()
-        vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma,
-                                        sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
+            flux_map = self.make_flux_map()
+            # for HSIM cube, The flux density units for input datacubes require 
+            # the usual flux (e.g., erg/s/cm^2/AA) to be divided by the spaxel 
+            # scale in arcsec. This then gives e.g. erg/s/cm^2/AA/arcsec^2.
+            if hsimcube:
+                flux_map = flux_map / (self.dx * self.dy) 
+            rel_lambda_map = self.make_rel_lambda_map()
+            vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma,
+                                            sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
+            
+            vdisp_c_map = vdisp_map/self.C
+            
+            ha_wave = 6563
+            
+            # 10km/s pixel
+            
+            
+            cube = np.zeros((self.nw,self.ny,self.nx))
+            # the below shape is wrong!! although I don't fully understand why 
+            # the shape is the above...
+            # cube = np.zeros((self.nx,self.ny,self.nw))
+            
+            for i in range(self.ny):
+                for j in range(self.nx):
+                    amp = flux_map[i,j]
+                    wave_cen = ha_wave*rel_lambda_map[i,j]
+                    sigma = ha_wave * vdisp_c_map[i,j]
+                    
+                    #gaussian = np.zeros(self.nw)
+                    # as all calculation here are based on deredshift spectrum
+                    # so use deredshift fwhm
+                    sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                    
+                    
+                    sigma_sq = sigma**2 + sigma_lsf**2
+                    
+                    
+                    #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                    #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                    
+                    w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                    w_cdf = w_cdf - self.dw/2
+                    
+                    cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                    
+                    gaussian = np.diff(cdf_scipy)/self.dw * amp
+                    
+                    cube[:,i,j] = gaussian
+            return cube
         
-        vdisp_c_map = vdisp_map/self.C
+        # second component
+        if outflow:
+            
+            flux_map = self.make_flux_map()
+            # for HSIM cube, The flux density units for input datacubes require 
+            # the usual flux (e.g., erg/s/cm^2/AA) to be divided by the spaxel 
+            # scale in arcsec. This then gives e.g. erg/s/cm^2/AA/arcsec^2.
+            if hsimcube:
+                flux_map = flux_map / (self.dx * self.dy) 
+            rel_lambda_map = self.make_rel_lambda_map()
+            vdisp_map = self.make_vdisp_map(SFR_sigma=SFR_sigma,
+                                            sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
+            
+            outflow_velocity_map = self.make_outflow_velocity_map()
+            
+            
+            velocity_map = self.make_vel_map()
+            outflow_rel_lambda_map = (velocity_map - outflow_velocity_map)/self.C + 1 
+            
+            vdisp_c_map = vdisp_map/self.C
+            outflow_vdisp_c_map = np.full_like(vdisp_c_map, 50)/self.C # assum 50 km/s vdisp for outflow
+            
+            
+            ha_wave = 6563
+            
+            # 10km/s pixel
+            
+            SigmaSFR_map = self.make_SigmaSFR_map()
+            
+            
+            cube = np.zeros((self.nw,self.ny,self.nx))
+            for i in range(self.ny):
+                for j in range(self.nx):
+                    
+                    logSigmaSFR = np.log10(SigmaSFR_map[i,j])
+                    
+                    if logSigmaSFR < -1.5:
+                    
+                    
+                        amp = flux_map[i,j]
+                        wave_cen = ha_wave*rel_lambda_map[i,j]
+                        sigma = ha_wave * vdisp_c_map[i,j]
+                        
+                        #gaussian = np.zeros(self.nw)
+                        # as all calculation here are based on deredshift spectrum
+                        # so use deredshift fwhm
+                        sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                        
+                        
+                        sigma_sq = sigma**2 + sigma_lsf**2
+                        
+                        
+                        #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                        #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                        
+                        w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                        w_cdf = w_cdf - self.dw/2
+                        
+                        cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                        
+                        gaussian = np.diff(cdf_scipy)/self.dw * amp
+                        
+                        cube[:,i,j] = gaussian
+                    elif logSigmaSFR >= -1.5:
+                        # main flux
+                        amp = 0.6 * flux_map[i,j]
+                        wave_cen = ha_wave*rel_lambda_map[i,j]
+                        sigma = ha_wave * vdisp_c_map[i,j]
+                        
+                        sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                        
+                        
+                        sigma_sq = sigma**2 + sigma_lsf**2
+                        
+                        
+                        #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                        #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                        
+                        w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                        w_cdf = w_cdf - self.dw/2
+                        
+                        cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                        
+                        gaussian = np.diff(cdf_scipy)/self.dw * amp
+                        
+                        # outflow flux
+                        amp = 0.4 * flux_map[i,j]
+                        wave_cen = ha_wave * outflow_rel_lambda_map[i,j]
+                        sigma = ha_wave * outflow_vdisp_c_map[i,j]
+                        sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                        
+                        
+                        sigma_sq = sigma**2 + sigma_lsf**2
+                        w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                        w_cdf = w_cdf - self.dw/2
+                        
+                        cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                        
+                        gaussian = gaussian + np.diff(cdf_scipy)/self.dw * amp
+                        cube[:,i,j] = gaussian
         
-        ha_wave = 6563
+            return cube
+    
+    def make_outflow_velocity_map(self):
+        '''
+        make outflow velocity offset map based on SFR surface density, only 
+        make outflow when log SigmaSFR > -1.5 (ref: Chu+2022 DUVET survey)
+        assume a 
+
+        Returns
+        -------
+        None.
+
+        '''
+        SigmaSFR_map = self.make_SigmaSFR_map()
+        outflow_velocity_map = self.map_logSigmaSFR_to_outflow_v(np.log10(SigmaSFR_map))
+    
+        return outflow_velocity_map
+    
+    def map_logSigmaSFR_to_outflow_v(self,logSigmaSFR):
+        '''
+        for a given log SigmaSFR, give outflow velocity offset
         
-        # 10km/s pixel
+        Parameters
+        ----------
+        logSigmaSFR : array
+            array of SFR surface density, in unit of Msun/yr/kpc^2
+
+        Returns
+        -------
+        v : array
+            velocity offset, in km/s
+
+        '''
+        logSigmSFR_array = np.asarray(logSigmaSFR)
+        v = np.zeros_like(logSigmSFR_array, dtype=float)
         
+        # case 1: logSigmSFR < -1.5 → v=0
+        v[logSigmSFR_array < -1.5] = 0
         
-        cube = np.zeros((self.nw,self.ny,self.nx))
-        # the below shape is wrong!! although I don't fully understand why 
-        # the shape is the above...
-        # cube = np.zeros((self.nx,self.ny,self.nw))
+        # case 2: -1.5 <= logSigmSFR < 0 → linear interpolation
+        mask = (logSigmSFR_array >= -1.5) & (logSigmSFR_array < 0)
+        slope = (200 - 100) / 1.5
+        v[mask] = 100 + slope * (logSigmSFR_array[mask] + 1.5)
         
-        for i in range(self.ny):
-            for j in range(self.nx):
-                amp = flux_map[i,j]
-                wave_cen = ha_wave*rel_lambda_map[i,j]
-                sigma = ha_wave * vdisp_c_map[i,j]
-                
-                #gaussian = np.zeros(self.nw)
-                # as all calculation here are based on deredshift spectrum
-                # so use deredshift fwhm
-                sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
-                
-                
-                sigma_sq = sigma**2 + sigma_lsf**2
-                
-                
-                #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
-                #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
-                
-                w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
-                w_cdf = w_cdf - self.dw/2
-                
-                cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
-                
-                gaussian = np.diff(cdf_scipy)/self.dw * amp
-                
-                cube[:,i,j] = gaussian
-                
+        # case 3: logSigmSFR_array >= 0 → v=300
+        v[logSigmSFR_array >= 0] = 300
         
-        
-        return cube
-        
+        return v
         
         
     def make_fits(self,savepath,hsimcube=True,SFR_sigma=False,
-                  sigmaSigmaSFRpaper='Wisnioski+12'):
+                  sigmaSigmaSFRpaper='Wisnioski+12',outflow=False):
         
         data = self.make_cube(hsimcube=hsimcube,SFR_sigma=SFR_sigma,
-                              sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
+                              sigmaSigmaSFRpaper=sigmaSigmaSFRpaper,
+                              outflow=outflow)
         
         
         # Create a primary HDU
