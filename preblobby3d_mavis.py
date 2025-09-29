@@ -217,7 +217,7 @@ class PreBlobby3D:
             
             if gaussian==2:
                 weight1, weight2, fwhm1, fwhm2 = psf_img_to_gauss(img,
-                                                    pix_size_arcsec=pix_size_arcsec)
+                                                    pix_size_arcsec=pix_size_arcsec,plot=True)
                 
                 modelfile.write('PSFWEIGHT\t%f %f\n'%(weight1,weight2))
                 modelfile.write('PSFFWHM\t%f %f\n'%(fwhm1,fwhm2))

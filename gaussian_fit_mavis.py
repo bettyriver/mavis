@@ -198,7 +198,7 @@ def psf_img_to_gauss(img,pix_size_arcsec,plot=False):
     ydata = img.ravel()
     
     popt, pcov = curve_fit(f=two_gaussian_c,xdata=xdata,ydata=ydata,
-                           bounds=([0,0,0.1,0.1,-5,-5],[np.inf,np.inf,np.inf,np.inf,5,5]))
+                           bounds=([0,0,0.5,0.5,-5,-5],[np.inf,np.inf,np.inf,np.inf,5,5]))
     
     t2 = two_gaussian_c(xdata,popt[0],popt[1],popt[2],popt[3],popt[4],popt[5]).reshape(img.shape[0],img.shape[1])
     

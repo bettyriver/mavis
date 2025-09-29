@@ -768,8 +768,9 @@ class Construct_cube:
             outflow_rel_lambda_map = (velocity_map - outflow_velocity_map)/self.C + 1 
             
             vdisp_c_map = vdisp_map/self.C
-            outflow_vdisp_c_map = np.full_like(vdisp_c_map, 50)/self.C # assum 50 km/s vdisp for outflow
+            #outflow_vdisp_c_map = np.full_like(vdisp_c_map, 50)/self.C # assum 50 km/s vdisp for outflow
             
+            outflow_vdisp_c_map = self.make_outflow_vdisp_map()/self.C
             
             ha_wave = 6563
             
@@ -867,6 +868,38 @@ class Construct_cube:
     
         return outflow_velocity_map
     
+    def make_outflow_vdisp_map(self):
+        '''
+        outflow velocity dispersion depends on SigmaSFR
+        log SigmaSFR = -1.5 --> outflow vdisp: 50 km/s
+        log SigmaSFR = 0 --> outflow: 100 km/s [ upper limit]
+
+        Returns
+        -------
+        None.
+
+        '''
+        SigmaSFR_map = self.make_SigmaSFR_map()
+        logSigmaSFR_map = np.log10(SigmaSFR_map)
+        outflow_vdisp_map = np.zeros_like(logSigmaSFR_map,dtype=float)
+        logSigmaSFR_array = np.asarray(logSigmaSFR_map)
+        
+        outflow_vdisp_map[logSigmaSFR_array < -1.5] = 0
+        
+        # case 2: -1.5 <= logSigmSFR < 0 → linear interpolation
+        mask = (logSigmaSFR_array >= -1.5) & (logSigmaSFR_array < 0)
+        slope = (100 - 50) / 1.5
+        outflow_vdisp_map[mask] = 50 + slope * (logSigmaSFR_array[mask] + 1.5)
+        
+        
+        # case 3: logSigmSFR_array >= 0
+        mask = (logSigmaSFR_array >= -1.5)
+        outflow_vdisp_map[mask] = 100
+        
+        return outflow_vdisp_map
+        
+        
+    
     def map_logSigmaSFR_to_outflow_v(self,logSigmaSFR):
         '''
         for a given log SigmaSFR, give outflow velocity offset
@@ -888,13 +921,17 @@ class Construct_cube:
         # case 1: logSigmSFR < -1.5 → v=0
         v[logSigmSFR_array < -1.5] = 0
         
-        # case 2: -1.5 <= logSigmSFR < 0 → linear interpolation
-        mask = (logSigmSFR_array >= -1.5) & (logSigmSFR_array < 0)
-        slope = (200 - 100) / 1.5
-        v[mask] = 100 + slope * (logSigmSFR_array[mask] + 1.5)
+        ## case 2: -1.5 <= logSigmSFR < 0 → linear interpolation
+        #mask = (logSigmSFR_array >= -1.5) & (logSigmSFR_array < 0)
+        #slope = (200 - 100) / 1.5
+        #v[mask] = 100 + slope * (logSigmSFR_array[mask] + 1.5)
         
-        # case 3: logSigmSFR_array >= 0 → v=300
-        v[logSigmSFR_array >= 0] = 300
+        ## case 3: logSigmSFR_array >= 0 → v=300
+        #v[logSigmSFR_array >= 0] = 300
+        
+        mask = (logSigmSFR_array >= -1.5)
+        v[mask] = 20
+        
         
         return v
         
