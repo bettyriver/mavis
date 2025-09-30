@@ -281,7 +281,30 @@ class Construct_cube:
         
         return velocity_map
         
-
+    
+    
+    def calculate_SigmaSFR_one_blob(self,blob_row):
+        blob_x, blob_y = blob_row['X'], blob_row['Y']
+        blob_w = blob_row['W']
+        blob_flux = blob_row['FLUX0']
+        
+        from astropy.cosmology import LambdaCDM
+        lcdm = LambdaCDM(70,0.3,0.7)
+        luminosity_distance_Mpc = lcdm.luminosity_distance(self.redshift)
+        luminosity_diatance_cm = luminosity_distance_Mpc.to(u.cm)
+        # 4*pi*lumi_dis**2 * flux
+        # note the flux should add 1e-20 to get the value in erg/s/cm**2
+        luminosity = 4*np.pi*(luminosity_diatance_cm.value)**2*blob_flux*1e-20
+        SFR = luminosity/(1.26*1.53*1e41) # from Mun+24
+        
+        pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=2*blob_w,
+                                           z=self.redshift)
+        
+        SigmaSFR = SFR/(pixel_wid_kpc)**2
+        
+        return SigmaSFR
+        
+    
     def make_one_blob_cube(self,blob_row):
         blob_x, blob_y = blob_row['X'], blob_row['Y']
         blob_w = blob_row['W']
@@ -294,10 +317,117 @@ class Construct_cube:
         random_vel = np.random.normal(0,10) # km/s
         velocity_map = velocity_map + random_vel
         
+        # calculate SigmaSFR for this blob
+        # Maybe try SigmaSFR = SFR/(4*pi*blob_w**2) (i.e.take 2*blob_w as range of blob)
+        
+        SigmaSFR = self.calculate_SigmaSFR_one_blob(blob_row=blob_row)
+        
+        
         
         
         
         return None
+    
+    
+    def vdisp_from_SigmaSFR(self,SigmaSFR,paper='Wisnioski+12'):
+        '''
+        calculate ionised gas velocity dispersion from SigmaSFR.
+
+        Parameters
+        ----------
+        SigmaSFR: float
+            SFR surface density
+        paper : str, optional
+            paper that relation is from. The default is 'Wisnioski+12'.
+            'Wisnioski+12': relation from observation of individual HII regions
+                            from E. Wisnioski+2012
+            'Mai+24': relation from observation of galaxy global parameters
+                        from Y. Mai+2024
+            'Krumholz+18_FT': feedback+tranport model from Krumholz+2018
+            'Krumholz+18_Fonly': feedback only model from Krumholz+2018
+            'Ostriker+22_Fonly': feedback only model from Ostriker+2022
+
+        Returns
+        -------
+        vdisp_map : TYPE
+            DESCRIPTION.
+
+        '''
+        
+        
+        valid_options = ['Wisnioski+12','Mai+24','Krumholz+18_FT',
+                         'Krumholz+18_Fonly','Ostriker+22_Fonly']
+        
+        # calculate vdisp from SigmaSFR_map
+        #vdisp_map = np.zeros_like(SigmaSFR_map)
+        
+        # from Mai+24
+        # log vdisp = 0.26836382*logSigmaSFR + 2.03763428
+        
+        # from Wisnioski+12
+        # log vdisp = 0.61 * logSigmaSFR + 2.01
+        
+        # assum the minimum logSigmaSFR is -3.5, any smaller value give a 
+        # constant vdisp
+        
+        # for spaxel that have very low SigmaSFR, give a certain value to 
+        # avoid log10 (0)
+        
+        
+        # for mavis, pix=0.02arcsec, the minimuum SigmaSFR using default prior is 3.4e-7
+        #low_SigmaSFR = SigmaSFR_map < 1e-8
+        #SigmaSFR_map[low_SigmaSFR] = 1e-8
+        
+        
+        
+        if paper == 'Wisnioski+12':
+            log10_vdisp = 0.61*np.log10(SigmaSFR) + 2.01
+            
+            vdisp = np.power(10, log10_vdisp)
+            
+            
+            if SigmaSFR<np.power(10,-1.5):
+                vdisp = np.power(10, 0.61*-1.5 + 2.01)
+        
+        
+            
+            
+        elif paper == 'Mai+24':
+        
+            log10_vdisp = 0.26836382*np.log10(SigmaSFR) + 2.03763428
+        
+            vdisp = np.power(10, log10_vdisp)
+            if SigmaSFR<np.power(10,-3.5):
+                vdisp = np.power(10, 0.26836382*-3.5 + 2.03763428)
+        
+        elif paper == 'Krumholz+18_FT':
+            
+            # don't use for loop ....
+            #map_shape = vdisp_map.shape
+            #for i in range(map_shape[0]):
+            #    for j in range(map_shape[1]):
+            #        vdisp_map[i,j] = K18_F_and_T(SigmaSFR_map[i,j])
+                    
+            SigmaSFR_break = K18_F_and_T_quick(get_break_point=True)
+            Fonly_sigma = K18_F_and_T_quick(get_Fonly_sigma=True)
+            if SigmaSFR > SigmaSFR_break:
+            
+                vdisp = K18_F_and_T_quick(SigmaSFR=SigmaSFR)
+            else:
+                vdisp = Fonly_sigma
+        
+        elif paper == 'Krumholz+18_Fonly':
+            vdisp = K18_F_only(SigmaSFR)
+        elif paper == 'Ostriker+22_Fonly':
+            vdisp = O22_F_only(SigmaSFR)
+        else:
+            raise ValueError(f"Invalid option: '{paper}'. Valid options are: {', '.join(valid_options)}")
+        
+        return vdisp
+    
+    
+    
+    
     
     def make_all_blob_cube(self):
         
