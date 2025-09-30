@@ -301,7 +301,7 @@ class Construct_cube:
         pixel_wid_kpc = self.arcsec_to_kpc(rad_in_arcsec=2*blob_w,
                                            z=self.redshift)
         
-        SigmaSFR = SFR/(pixel_wid_kpc)**2
+        SigmaSFR = SFR/np.pi/(pixel_wid_kpc)**2
         
         return SigmaSFR
         
@@ -330,7 +330,7 @@ class Construct_cube:
         outflow_flag = False
         
         # outflow
-        if np.log10(SigmaSFR) > -2: # i use -1.5 for the stack map. i lower the bar here
+        if np.log10(SigmaSFR) > -1.5: # i use -1.5 for the stack map. i lower the bar here
             outflow_flag = True
             outflow_v = 20
             
@@ -338,8 +338,8 @@ class Construct_cube:
             if np.log10(SigmaSFR)>0:
                 outflow_vdisp = 100
             else:
-                slope = (100 - 50) / 2
-                outflow_vdisp = 50 + slope * (np.log10(SigmaSFR) + 2)
+                slope = (100 - 50) / 1.5
+                outflow_vdisp = 50 + slope * (np.log10(SigmaSFR) + 1.5)
             
         
         ##### start construct cube
