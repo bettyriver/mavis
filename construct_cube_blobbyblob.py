@@ -140,6 +140,7 @@ class Construct_cube:
         
         # speed of light in km/s
         self.C = 2.99792458e5
+        self.ha_wave = 6563
         
         self.pixel_width = np.sqrt(self.nx * self.ny)
         self.redshift = redshift
@@ -305,7 +306,8 @@ class Construct_cube:
         return SigmaSFR
         
     
-    def make_one_blob_cube(self,blob_row):
+    def make_one_blob_cube(self,blob_row,sigmaSigmaSFRpaper='Wisnioski+12',
+                           hsimcube=True):
         blob_x, blob_y = blob_row['X'], blob_row['Y']
         blob_w = blob_row['W']
         blob_flux = blob_row['FLUX0']
@@ -322,11 +324,141 @@ class Construct_cube:
         
         SigmaSFR = self.calculate_SigmaSFR_one_blob(blob_row=blob_row)
         
+        vdisp = self.vdisp_from_SigmaSFR(SigmaSFR=SigmaSFR,paper=sigmaSigmaSFRpaper)
+        vdisp_map = np.full_like(velocity_map, vdisp)
         
+        outflow_flag = False
         
+        # outflow
+        if np.log10(SigmaSFR) > -2: # i use -1.5 for the stack map. i lower the bar here
+            outflow_flag = True
+            outflow_v = 20
+            
+            #outflow vdisp
+            if np.log10(SigmaSFR)>0:
+                outflow_vdisp = 100
+            else:
+                slope = (100 - 50) / 2
+                outflow_vdisp = 50 + slope * (np.log10(SigmaSFR) + 2)
+            
         
+        ##### start construct cube
+        if not outflow_flag:
+            if hsimcube:
+                flux_map = flux_map / (self.dx * self.dy) 
+            
+            rel_lambda_map = velocity_map/self.C + 1 
+            vdisp_c_map = vdisp_map/self.C
+            cube = np.zeros((self.nw,self.ny,self.nx))
+            for i in range(self.ny):
+                for j in range(self.nx):
+                    amp = flux_map[i,j]
+                    wave_cen = self.ha_wave*rel_lambda_map[i,j]
+                    sigma = self.ha_wave * vdisp_c_map[i,j]
+                    
+                    #gaussian = np.zeros(self.nw)
+                    # as all calculation here are based on deredshift spectrum
+                    # so use deredshift fwhm
+                    sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                    
+                    
+                    sigma_sq = sigma**2 + sigma_lsf**2
+                    
+                    
+                    #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                    #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                    
+                    w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                    w_cdf = w_cdf - self.dw/2
+                    
+                    cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                    
+                    gaussian = np.diff(cdf_scipy)/self.dw * amp
+                    
+                    cube[:,i,j] = gaussian
         
-        return None
+        else: # for the case with outflow
+            if hsimcube:
+                flux_map = flux_map / (self.dx * self.dy) 
+            
+            rel_lambda_map = velocity_map/self.C + 1 
+            vdisp_c_map = vdisp_map/self.C
+            cube = np.zeros((self.nw,self.ny,self.nx))
+            outflow_velocity_map = np.full_like(velocity_map, outflow_v)
+            
+            outflow_rel_lambda_map = (velocity_map - outflow_velocity_map)/self.C + 1 
+            outflow_vdisp_c_map = np.full_like(velocity_map,outflow_vdisp)/self.C
+            
+            cube = np.zeros((self.nw,self.ny,self.nx))
+            for i in range(self.ny):
+                for j in range(self.nx):
+                    
+                    logSigmaSFR = np.log10(SigmaSFR)
+                    
+                    
+                    # main flux
+                    amp = 0.6 * flux_map[i,j]
+                    wave_cen = self.ha_wave*rel_lambda_map[i,j]
+                    sigma = self.ha_wave * vdisp_c_map[i,j]
+                    
+                    sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                    
+                    
+                    sigma_sq = sigma**2 + sigma_lsf**2
+                    
+                    
+                    #gaussian = amp / (np.sqrt(2*np.pi*sigma_sq)) * \
+                    #    np.exp(-(self.w - wave_cen)**2 / (2 * sigma_sq))
+                    
+                    w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                    w_cdf = w_cdf - self.dw/2
+                    
+                    cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                    
+                    gaussian = np.diff(cdf_scipy)/self.dw * amp
+                    
+                    # outflow flux
+                    amp = 0.4 * flux_map[i,j]
+                    wave_cen = self.ha_wave * outflow_rel_lambda_map[i,j]
+                    sigma = self.ha_wave * outflow_vdisp_c_map[i,j]
+                    sigma_lsf =  self.lsf_fwhm_deredshift/ (2 * np.sqrt(2 * np.log(2)))
+                    
+                    
+                    sigma_sq = sigma**2 + sigma_lsf**2
+                    w_cdf = np.concatenate((self.w,[self.w[-1]+self.dw]))
+                    w_cdf = w_cdf - self.dw/2
+                    
+                    cdf_scipy = norm.cdf(w_cdf, wave_cen, np.sqrt(sigma_sq))
+                    
+                    gaussian = gaussian + np.diff(cdf_scipy)/self.dw * amp
+                    cube[:,i,j] = gaussian
+        
+        if outflow_flag:
+            meta = {
+                    "X": blob_row["X"],
+                    "Y": blob_row["Y"],
+                    "W": blob_row["W"],
+                    "FLUX0": blob_row["FLUX0"],
+                    "velocity": velocity_map[0,0],
+                    "SigmaSFR": SigmaSFR,
+                    "vdisp": vdisp,
+                    "outflow_velocity": outflow_v,
+                    "outflow_vdisp": outflow_vdisp
+                }
+        else:
+            meta = {
+                    "X": blob_row["X"],
+                    "Y": blob_row["Y"],
+                    "W": blob_row["W"],
+                    "FLUX0": blob_row["FLUX0"],
+                    "velocity": velocity_map[0,0],
+                    "SigmaSFR": SigmaSFR,
+                    "vdisp": vdisp,
+                    "outflow_velocity": 0,
+                    "outflow_vdisp": 0
+                }
+        
+        return cube, meta
     
     
     def vdisp_from_SigmaSFR(self,SigmaSFR,paper='Wisnioski+12'):
@@ -429,11 +561,11 @@ class Construct_cube:
     
     
     
-    def make_all_blob_cube(self):
+    def make_all_blob_cube(self,hsimcube=True,sigmaSigmaSFRpaper='Wisnioski+12'):
         
         all_blob_cube = np.zeros((self.nw,self.ny,self.nx))
-        
-        for _, row in self.blobs_df.iterrows():
+        meta_list = []
+        for idx, row in self.blobs_df.iterrows():
             
             blob_x, blob_y = row['X'], row['Y']
             blob_w = row['W']
@@ -452,4 +584,78 @@ class Construct_cube:
                     continue
             
             
-            all_blob_cube += self.make_all_blob_cube(blob_row=row)
+            cube_i, meta_i = self.make_one_blob_cube(blob_row=row,
+                                    sigmaSigmaSFRpaper=sigmaSigmaSFRpaper,
+                                    hsimcube=hsimcube)
+            all_blob_cube += cube_i
+            
+            meta_i["row_index"] = idx
+            meta_list.append(meta_i)
+        
+        blob_all_info = pd.DataFrame(meta_list)
+            
+        return all_blob_cube, blob_all_info
+    
+    def arcsec_to_kpc(self,rad_in_arcsec,z):
+        from astropy.cosmology import LambdaCDM
+        lcdm = LambdaCDM(70,0.3,0.7)
+        distance = lcdm.angular_diameter_distance(z).value # angular diameter distance, Mpc/radian
+        rad_in_kpc = rad_in_arcsec * distance * np.pi/(180*3600)*1000
+        return rad_in_kpc
+    
+    def make_fits(self,savepath,hsimcube=True,
+                  sigmaSigmaSFRpaper='Wisnioski+12',csv_path=None):
+        
+        datacube,blob_info_df = self.make_all_blob_cube(hsimcube=hsimcube,
+                              sigmaSigmaSFRpaper=sigmaSigmaSFRpaper)
+        
+        
+        # Create a primary HDU
+        hdu = fits.PrimaryHDU(datacube)
+        
+        # Modify the header
+        hdu.header['OBJECT'] = 'Example Data'
+        
+        # spatial info
+        hdu.header['NAXIS1'] = self.nx
+        hdu.header['NAXIS2'] = self.ny
+        
+        hdu.header['CTYPE1'] = 'RA---TAN'
+        hdu.header['CTYPE2'] = 'DEC--TAN'
+        
+        hdu.header['CDELT1'] = self.dx
+        hdu.header['CDELT2'] = self.dy
+        
+        hdu.header['CUNIT1'] = 'arcsec'
+        hdu.header['CUNIT2'] = 'arcsec'
+        
+        # spectral info
+        hdu.header['NAXIS3'] = self.nw
+        hdu.header['CTYPE3'] = 'wavelength'
+        
+        # recover the redshifted wavelength
+        hdu.header['CDELT3'] = self.dw * (1 + self.redshift)
+        
+        hdu.header['SPECRES'] = self.lsf_fwhm  #lsf fwhm in Angstrom
+        
+        hdu.header['CRPIX3'] = 1
+        # maybe I shouldn't add this 1/2*dw here
+        #hdu.header['CRVAL3'] = (self.w_min + 1/2 * self.dw) * (1 + self.redshift)
+        hdu.header['CRVAL3'] = (self.w_min ) * (1 + self.redshift)
+        hdu.header['CUNIT3'] = 'Angstrom'
+        
+        # Flux unit
+        if hsimcube:
+            hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom/arcsec**2'
+        else:
+            hdu.header['BUNIT'] = '10**(-20)*erg/s/cm**2/Angstrom'
+        
+        
+        # Create an HDU list
+        hdul = fits.HDUList([hdu])
+        
+        # Write to a FITS file
+        hdul.writeto(savepath, overwrite=True)
+        if csv_path is not None:
+            blob_info_df.to_csv(csv_path)
+        
