@@ -893,7 +893,7 @@ class Construct_cube:
         
         
         # case 3: logSigmSFR_array >= 0
-        mask = (logSigmaSFR_array >= -1.5)
+        mask = (logSigmaSFR_array >= 0)
         outflow_vdisp_map[mask] = 100
         
         return outflow_vdisp_map
